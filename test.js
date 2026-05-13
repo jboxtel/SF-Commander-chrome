@@ -35,8 +35,8 @@ async function injectExtension(page) {
   await page.addStyleTag({ path: path.join(EXT, 'content.css') });
 
   // Inject scripts as script tags so const/let declarations are shared across all of them.
-  // Order matters: salesforce-urls (getApiBase) → shared (sfRestPreamble) → objects/commands.
-  for (const file of ['salesforce-urls.js', 'shared.js', 'objects.js', 'commands.js']) {
+  // Order matters: urls/shared/primitives before data loaders and command resolution.
+  for (const file of ['salesforce-urls.js', 'shared.js', 'primitives.js', 'objects.js', 'commands.js']) {
     await page.addScriptTag({ path: path.join(EXT, file) });
   }
 
@@ -54,6 +54,16 @@ async function injectExtension(page) {
       window.getFlowsState = () => 'idle';
       window.getFlowsError = () => '';
       window.resolveFlowPicker = () => ({ mode: 'flow-picker', results: [], hint: '' });
+      window.initApps = () => {};
+      window.getAllApps = () => [];
+      window.getAppsState = () => 'idle';
+      window.getAppsError = () => '';
+      window.resolveAppPicker = () => ({ mode: 'app-picker', results: [], hint: '' });
+      window.initLabels = () => {};
+      window.getAllLabels = () => [];
+      window.getLabelsState = () => 'idle';
+      window.getLabelsError = () => '';
+      window.resolveLabelPicker = () => ({ mode: 'label-picker', results: [], hint: '' });
       window.hasSoqlApiKey = () => Promise.resolve(false);
       window.openSoqlSettings = () => {};
       window.generateSoql = () => Promise.reject(new Error('not stubbed'));
@@ -218,6 +228,7 @@ async function openPalette(page) {
   // ── Test 7: @objects shows all objects ──────────────────────────────────
   console.log('\n@objects mode');
   await page.fill('#sfnav-input', '@objects');
+  await page.keyboard.press('Enter');
   await page.waitForTimeout(50);
 
   await assert(
@@ -240,18 +251,18 @@ async function openPalette(page) {
     'no account-related object in filtered list',
   );
 
-  // ── Test 8: @flows → setup search ───────────────────────────────────────
-  console.log('\nGlobal search mode');
+  // ── Test 8: @flows shortcut hint ─────────────────────────────────────────
+  console.log('\n@flows shortcut hint');
   await page.fill('#sfnav-input', '@flows');
   await page.waitForTimeout(50);
 
   await assert(
-    '@flows top result is "Flows" setup link',
+    '@flows shows the browse shortcut hint',
     async () => {
-      const first = await page.$eval('.sfnav-item .sfnav-label', el => el.textContent).catch(() => null);
-      return first === 'Flows';
+      const hint = await page.$eval('#sfnav-hint', el => el.textContent).catch(() => null);
+      return hint === 'Press Enter to browse all flows';
     },
-    'first result is not "Flows"',
+    'flow shortcut hint is missing',
   );
 
   // ── Test 9: @load via REST API mock ─────────────────────────────────────
@@ -299,6 +310,7 @@ async function openPalette(page) {
   // ── Test 10: keyboard navigation ─────────────────────────────────────────
   console.log('\nKeyboard navigation');
   await page.fill('#sfnav-input', '@objects');
+  await page.keyboard.press('Enter');
   await page.waitForTimeout(50);
 
   const initialSelected = await page.$eval('.sfnav-item.selected', el => el.textContent).catch(() => null);
@@ -322,6 +334,7 @@ async function openPalette(page) {
 
   // ── Test 10: Escape closes palette ──────────────────────────────────────
   console.log('\nDismiss');
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
 
   await assert(

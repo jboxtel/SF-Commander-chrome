@@ -82,39 +82,36 @@ function toSubPageResult(page, object) {
   };
 }
 
-var SOQL_ACTION = {
-  label: '@soql',
-  sublabel: 'Ask a data question',
-  url: '#',
-  type: 'action',
-  action: 'soql-generator',
-};
+function makeShortcutResult(shortcut, type) {
+  return {
+    label: shortcut.label,
+    sublabel: shortcut.sublabel,
+    url: '#',
+    type: type || (shortcut.action ? 'action' : 'shortcut'),
+    keyword: shortcut.id,
+    action: shortcut.action,
+  };
+}
 
-var FLOW_DEBUG_ACTION = {
-  label: '@debug',
-  sublabel: 'Analyze a flow with Claude',
-  url: '#',
-  type: 'action',
-  action: 'flow-debug',
-};
+var SOQL_ACTION = makeShortcutResult(sfnavFindShortcut('soql'), 'action');
+var FLOW_DEBUG_ACTION = makeShortcutResult(sfnavFindShortcut('flow-debug'), 'action');
 
 function makeHeader(label) {
   return { label: label, type: 'header' };
 }
 
+function appendShortcutGroup(results, label, group, type) {
+  results.push(makeHeader(label));
+  sfnavGetShortcutsByGroup(group).forEach(function (shortcut) {
+    results.push(makeShortcutResult(shortcut, type));
+  });
+}
+
 function getRootResults() {
   var results = [];
 
-  // ── Browse ──
-  results.push(makeHeader('Browse'));
-  results.push({ label: '@object',   sublabel: 'All standard & custom objects', url: '#', type: 'shortcut', keyword: 'object' });
-  results.push({ label: '@flow',     sublabel: 'All org flows',                 url: '#', type: 'shortcut', keyword: 'flow' });
-  results.push({ label: '@app',      sublabel: 'All installed Lightning apps',  url: '#', type: 'shortcut', keyword: 'app' });
-  results.push({ label: '@cmd',      sublabel: 'Custom metadata types',         url: '#', type: 'shortcut', keyword: 'cmd' });
-  results.push({ label: '@label',    sublabel: 'Custom labels',                 url: '#', type: 'shortcut', keyword: 'label' });
-  results.push({ label: '@setup',    sublabel: 'All setup quick links',         url: '#', type: 'shortcut', keyword: 'setup' });
+  appendShortcutGroup(results, 'Browse', 'browse', 'shortcut');
 
-  // ── AI Tools ──
   results.push(makeHeader('AI Tools'));
   results.push(SOQL_ACTION);
   var onFlowPage = typeof isFlowBuilderPage === 'function' && isFlowBuilderPage();
@@ -127,7 +124,6 @@ function getRootResults() {
     disabled: !onFlowPage,
   });
 
-  // ── Setup ──
   results.push(makeHeader('Setup'));
   SETUP_QUICK_LINKS.slice(0, 8).forEach(function (link) {
     results.push(toQuickLinkResult(link));
@@ -138,22 +134,9 @@ function getRootResults() {
 
 function getShortcutResults() {
   var results = [];
-
-  results.push(makeHeader('Browse'));
-  results.push({ label: '@object',   sublabel: 'All standard & custom objects', url: '#', type: 'shortcut', keyword: 'object' });
-  results.push({ label: '@flow',     sublabel: 'All org flows',                 url: '#', type: 'shortcut', keyword: 'flow' });
-  results.push({ label: '@app',      sublabel: 'All installed Lightning apps',  url: '#', type: 'shortcut', keyword: 'app' });
-  results.push({ label: '@cmd',      sublabel: 'Custom metadata types',         url: '#', type: 'shortcut', keyword: 'cmd' });
-  results.push({ label: '@label',    sublabel: 'Custom labels',                 url: '#', type: 'shortcut', keyword: 'label' });
-  results.push({ label: '@setup',    sublabel: 'All setup quick links',         url: '#', type: 'shortcut', keyword: 'setup' });
-
-  results.push(makeHeader('AI Tools'));
-  results.push({ label: '@soql',     sublabel: 'Ask a data question',           url: '#', type: 'shortcut', keyword: 'soql' });
-  results.push({ label: '@debug',    sublabel: 'Analyze a flow with Claude',    url: '#', type: 'shortcut', keyword: 'flow-debug' });
-
-  results.push(makeHeader('Maintenance'));
-  results.push({ label: '@refresh',  sublabel: 'Reload cached metadata',        url: '#', type: 'shortcut', keyword: 'refresh' });
-
+  appendShortcutGroup(results, 'Browse', 'browse', 'shortcut');
+  appendShortcutGroup(results, 'AI Tools', 'ai', 'shortcut');
+  appendShortcutGroup(results, 'Maintenance', 'maintenance', 'shortcut');
   return results;
 }
 
@@ -318,6 +301,32 @@ function resolveObjectScoped(filter, object) {
   };
 }
 
+function resolveShortcutHint(shortcut) {
+  var modeById = {
+    object: 'object-hint',
+    flow: 'flow-hint',
+    app: 'app-hint',
+    cmd: 'cmd-hint',
+    label: 'label-hint',
+    setup: 'setup-hint',
+    soql: 'soql-hint',
+    refresh: 'refresh-hint',
+    'flow-debug': 'flow-debug-hint',
+  };
+  var hint = shortcut.hint;
+  if (shortcut.id === 'flow-debug') {
+    var onFlow = typeof isFlowBuilderPage === 'function' && isFlowBuilderPage();
+    hint = onFlow ? shortcut.hint : shortcut.disabledHint;
+  }
+  return {
+    mode: modeById[shortcut.id] || (shortcut.id + '-hint'),
+    results: shortcut.action && shortcut.id !== 'refresh'
+      ? [makeShortcutResult(shortcut, 'action')]
+      : [],
+    hint: hint,
+  };
+}
+
 function resolveInput(rawInput) {
   // Bare "@" → show the discoverable shortcut menu
   if (rawInput === '@') {
@@ -339,88 +348,9 @@ function resolveInput(rawInput) {
     };
   }
 
-  // "@flows" — hint to press Enter
-  if (input.toLowerCase() === 'flows' || input.toLowerCase() === 'flow') {
-    return {
-      mode: 'flow-hint',
-      results: [],
-      hint: 'Press Enter to browse all flows',
-    };
-  }
-
-  // "@app" / "@apps" — hint to press Enter to browse Lightning apps
-  if (input.toLowerCase() === 'app' || input.toLowerCase() === 'apps') {
-    return {
-      mode: 'app-hint',
-      results: [],
-      hint: 'Press Enter to browse Lightning apps',
-    };
-  }
-
-  // "@object" or "@objects" — hint to press Enter
-  if (input.toLowerCase() === 'object' || input.toLowerCase() === 'objects') {
-    return {
-      mode: 'object-hint',
-      results: [],
-      hint: 'Press Enter to browse all objects',
-    };
-  }
-
-  // "@cmd" / "@cmdt" / "@mdt" — hint to press Enter to browse CMDTs
-  var lc = input.toLowerCase();
-  if (lc === 'cmd' || lc === 'cmdt' || lc === 'mdt') {
-    return {
-      mode: 'cmd-hint',
-      results: [],
-      hint: 'Press Enter to browse custom metadata types',
-    };
-  }
-
-  // "@label" / "@labels" — hint to press Enter to browse custom labels
-  if (lc === 'label' || lc === 'labels') {
-    return {
-      mode: 'label-hint',
-      results: [],
-      hint: 'Press Enter to browse custom labels',
-    };
-  }
-
-  // "@setup" — hint to press Enter to browse setup pages
-  if (lc === 'setup') {
-    return {
-      mode: 'setup-hint',
-      results: [],
-      hint: 'Press Enter to browse all setup pages',
-    };
-  }
-
-  // "@soql" — hint to press Enter
-  if (input.toLowerCase() === 'soql') {
-    return {
-      mode: 'soql-hint',
-      results: [SOQL_ACTION],
-      hint: 'Press Enter to open the SOQL generator',
-    };
-  }
-
-  // "@refresh" — hint to press Enter to refetch flow + object caches
-  if (lc === 'refresh' || lc === 'reload') {
-    return {
-      mode: 'refresh-hint',
-      results: [],
-      hint: 'Press Enter to refresh the flow + object caches',
-    };
-  }
-
-  // "@debug" or "@flow-debug" — hint to press Enter
-  var lower = input.toLowerCase();
-  if (lower === 'debug' || lower === 'flow-debug') {
-    var onFlow = typeof isFlowBuilderPage === 'function' && isFlowBuilderPage();
-    return {
-      mode: 'flow-debug-hint',
-      results: [FLOW_DEBUG_ACTION],
-      hint: onFlow ? 'Press Enter to debug this flow' : 'Open a flow first — then press Enter to debug it',
-    };
+  var shortcut = sfnavFindShortcut(input);
+  if (shortcut) {
+    return resolveShortcutHint(shortcut);
   }
 
   // Fallback: fuzzy search across everything

@@ -72,23 +72,27 @@
 
     input.addEventListener('input', function () {
       var val = input.value;
-      // From root, `@cmd foo` / `@flow foo` / `@object foo` jumps into the
-      // matching picker with `foo` as the live filter. Triggers on the first
-      // space after the keyword so users can keep typing without pressing Enter.
-      if (searchMode === 'root') {
-        var trimmed = val.replace(/^@/, '');
-        var m = trimmed.match(/^(cmd|cmdt|mdt|flow|flows|object|objects|app|apps|label|labels|setup|soql|debug|flow-debug)\s+(.*)$/i);
-        if (m) {
-          var kw = m[1].toLowerCase();
-          var rest = m[2];
-          if (kw === 'cmd' || kw === 'cmdt' || kw === 'mdt') { enterCmdPickerMode(rest); return; }
-          if (kw === 'flow' || kw === 'flows')               { enterFlowPickerMode(rest); return; }
-          if (kw === 'object' || kw === 'objects')           { enterObjectPickerMode(rest); return; }
-          if (kw === 'app' || kw === 'apps')                 { enterAppPickerMode(rest); return; }
-          if (kw === 'label' || kw === 'labels')             { enterLabelPickerMode(rest); return; }
-          if (kw === 'setup')                                { enterSetupPickerMode(rest); return; }
-          if (kw === 'soql')                                 { enterSoqlMode(); return; }
-          if (kw === 'debug' || kw === 'flow-debug')         { enterFlowDebugMode(); return; }
+      // `@cmd foo` / `@flow foo` / `@object foo` jumps into the matching
+      // picker with `foo` as the live filter. Direct object commands like
+      // `@Account fields` jump to that object's scoped pages.
+      if (val.charAt(0) === '@') {
+        var invocation = sfnavParseShortcutInvocation(val);
+        if (invocation && invocation.shortcut.group === 'browse') {
+          enterShortcutMode(invocation.shortcut, invocation.filter);
+          return;
+        }
+        if (invocation && invocation.shortcut.id === 'soql') { enterSoqlMode(); return; }
+        if (invocation && invocation.shortcut.id === 'flow-debug') { enterFlowDebugMode(); return; }
+        var objectInvocation = resolveObjectScopedInvocation(val);
+        if (objectInvocation) {
+          enterObjectScopedMode(objectInvocation.object, objectInvocation.filter);
+          return;
+        }
+        var exactShortcut = sfnavFindShortcut(val);
+        if (exactShortcut) {
+          searchMode = 'root';
+          renderResults(resolveInput(val));
+          return;
         }
       }
       if (searchMode === 'object-picker') {
@@ -126,41 +130,9 @@
   function handleEnter() {
     if (searchMode === 'root') {
       var input = document.getElementById('sfnav-input');
-      var keyword = input.value.trim().replace(/^@/, '').toLowerCase();
-      if (keyword === 'object' || keyword === 'objects') {
-        enterObjectPickerMode('');
-        return;
-      }
-      if (keyword === 'flow' || keyword === 'flows') {
-        enterFlowPickerMode('');
-        return;
-      }
-      if (keyword === 'app' || keyword === 'apps') {
-        enterAppPickerMode('');
-        return;
-      }
-      if (keyword === 'soql') {
-        enterSoqlMode();
-        return;
-      }
-      if (keyword === 'flow-debug' || keyword === 'debug') {
-        enterFlowDebugMode();
-        return;
-      }
-      if (keyword === 'cmd' || keyword === 'cmdt' || keyword === 'mdt') {
-        enterCmdPickerMode('');
-        return;
-      }
-      if (keyword === 'label' || keyword === 'labels') {
-        enterLabelPickerMode('');
-        return;
-      }
-      if (keyword === 'setup') {
-        enterSetupPickerMode('');
-        return;
-      }
-      if (keyword === 'refresh' || keyword === 'reload') {
-        runRefresh();
+      var shortcut = sfnavFindShortcut(input.value);
+      if (shortcut) {
+        executeShortcut(shortcut.id);
         return;
       }
     }
@@ -225,6 +197,36 @@
     }
   }
 
+  function resolveObjectScopedInvocation(value) {
+    var stripped = (value || '').trim().replace(/^@/, '');
+    if (!stripped) return null;
+    var parts = stripped.match(/^(\S+)(?:\s+(.*))?$/);
+    if (!parts) return null;
+    var objectQuery = parts[1];
+    if (sfnavFindShortcut(objectQuery)) return null;
+
+    var query = objectQuery.toLowerCase();
+    var objects = getAllObjects();
+    var exact = objects.find(function (o) {
+      return o.apiName.toLowerCase() === query || o.label.toLowerCase() === query;
+    });
+    var match = exact || fuzzyFilter(objectQuery, objects, function (o) { return o.label + ' ' + o.apiName; })[0];
+    if (!match) return null;
+
+    return { object: match, filter: parts[2] || '' };
+  }
+
+  function enterShortcutMode(shortcut, filterText) {
+    switch (shortcut.id) {
+      case 'object': enterObjectPickerMode(filterText || ''); return;
+      case 'flow':   enterFlowPickerMode(filterText || ''); return;
+      case 'app':    enterAppPickerMode(filterText || ''); return;
+      case 'cmd':    enterCmdPickerMode(filterText || ''); return;
+      case 'label':  enterLabelPickerMode(filterText || ''); return;
+      case 'setup':  enterSetupPickerMode(filterText || ''); return;
+    }
+  }
+
   function enterObjectPickerMode(filterText) {
     searchMode = 'object-picker';
     scopedObject = null;
@@ -235,7 +237,7 @@
     input.focus();
   }
 
-  function enterObjectScopedMode(obj) {
+  function enterObjectScopedMode(obj, filterText) {
     // Remember where we came from so ESC can restore it
     if (searchMode === 'object-picker') {
       objectPickerFilter = document.getElementById('sfnav-input').value;
@@ -245,9 +247,9 @@
     searchMode = 'object-scoped';
     scopedObject = obj;
     var input = document.getElementById('sfnav-input');
-    input.value = '';
+    input.value = filterText || '';
     input.placeholder = 'Filter sections…';
-    renderResults(resolveObjectScoped('', obj));
+    renderResults(resolveObjectScoped(filterText || '', obj));
     input.focus();
   }
 
@@ -865,17 +867,14 @@
   }
 
   function executeShortcut(keyword) {
-    switch (keyword) {
-      case 'object':     enterObjectPickerMode(''); return;
-      case 'flow':       enterFlowPickerMode(''); return;
-      case 'app':        enterAppPickerMode(''); return;
-      case 'cmd':        enterCmdPickerMode(''); return;
-      case 'label':      enterLabelPickerMode(''); return;
-      case 'setup':      enterSetupPickerMode(''); return;
-      case 'soql':       enterSoqlMode(); return;
-      case 'flow-debug': enterFlowDebugMode(); return;
-      case 'refresh':    runRefresh(); return;
+    var shortcut = sfnavFindShortcut(keyword);
+    if (shortcut && shortcut.group === 'browse') {
+      enterShortcutMode(shortcut, '');
+      return;
     }
+    if (shortcut && shortcut.id === 'soql') { enterSoqlMode(); return; }
+    if (shortcut && shortcut.id === 'flow-debug') { enterFlowDebugMode(); return; }
+    if (shortcut && shortcut.id === 'refresh') { runRefresh(); return; }
   }
 
   function runRefresh() {
