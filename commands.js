@@ -82,6 +82,33 @@ function toSubPageResult(page, object) {
   };
 }
 
+var SHORTCUTS = [
+  { id: 'object', aliases: 'object objects', label: '@object', sublabel: 'All standard & custom objects', group: 'browse', hint: 'Press Enter to browse all objects' },
+  { id: 'flow', aliases: 'flow flows', label: '@flow', sublabel: 'All org flows', group: 'browse', hint: 'Press Enter to browse all flows' },
+  { id: 'app', aliases: 'app apps', label: '@app', sublabel: 'All installed Lightning apps', group: 'browse', hint: 'Press Enter to browse Lightning apps' },
+  { id: 'cmd', aliases: 'cmd cmdt mdt', label: '@cmd', sublabel: 'Custom metadata types', group: 'browse', hint: 'Press Enter to browse custom metadata types' },
+  { id: 'label', aliases: 'label labels', label: '@label', sublabel: 'Custom labels', group: 'browse', hint: 'Press Enter to browse custom labels' },
+  { id: 'setup', aliases: 'setup', label: '@setup', sublabel: 'All setup quick links', group: 'browse', hint: 'Press Enter to browse all setup pages' },
+  { id: 'soql', aliases: 'soql', label: '@soql', sublabel: 'Ask a data question', group: 'ai', action: 'soql-generator', hint: 'Press Enter to open the SOQL generator' },
+  { id: 'flow-debug', aliases: 'debug flow-debug', label: '@debug', sublabel: 'Analyze a flow with Claude', group: 'ai', action: 'flow-debug', hint: 'Press Enter to debug this flow', disabledHint: 'Open a flow first — then press Enter to debug it' },
+  { id: 'refresh', aliases: 'refresh reload', label: '@refresh', sublabel: 'Reload cached metadata', group: 'maintenance', action: 'refresh', hint: 'Press Enter to refresh the flow + object caches' },
+];
+
+function sfnavFindShortcut(value) {
+  var input = (value || '').trim().replace(/^@/, '').toLowerCase();
+  return SHORTCUTS.find(function (s) { return s.aliases.split(' ').indexOf(input) !== -1; }) || null;
+}
+
+function sfnavGetShortcutsByGroup(group) {
+  return SHORTCUTS.filter(function (s) { return s.group === group; });
+}
+
+function sfnavParseShortcutInvocation(value) {
+  var match = (value || '').trim().replace(/^@/, '').match(/^(\S+)\s+(.*)$/);
+  var shortcut = match && sfnavFindShortcut(match[1]);
+  return shortcut ? { shortcut: shortcut, filter: match[2] } : null;
+}
+
 function makeShortcutResult(shortcut, type) {
   return {
     label: shortcut.label,

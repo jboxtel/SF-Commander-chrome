@@ -35,8 +35,8 @@ async function injectExtension(page) {
   await page.addStyleTag({ path: path.join(EXT, 'content.css') });
 
   // Inject scripts as script tags so const/let declarations are shared across all of them.
-  // Order matters: urls/shared/primitives before data loaders and command resolution.
-  for (const file of ['salesforce-urls.js', 'shared.js', 'primitives.js', 'objects.js', 'commands.js']) {
+  // Order matters: urls/shared before data loaders and command resolution.
+  for (const file of ['salesforce-urls.js', 'shared.js', 'objects.js', 'commands.js']) {
     await page.addScriptTag({ path: path.join(EXT, file) });
   }
 
